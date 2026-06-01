@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignLingo Web Ecosystem</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --accent-glow: #00f2fe;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background: #090a0f;
+            color: #ffffff;
+            min-height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Full Viewport Camera Layer */
+        .camera-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        video#webcam {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror view for natural interaction */
+        }
+
+        canvas#output-canvas {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Glassmorphism User Interface Control Deck */
+        .glass-panel {
+            position: absolute;
+            bottom: 40px;
+            z-index: 10;
+            width: 90%;
+            max-width: 680px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .status-badge {
+            background: rgba(0, 242, 254, 0.15);
+            border: 1px solid var(--accent-glow);
+            color: var(--accent-glow);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .translation-display {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 14px;
+            padding: 20px;
+            min-height: 80px;
+            font-size: 24px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .action-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        button {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--glass-border);
+            color: #fff;
+            padding: 14px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        button.primary-btn {
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            border: none;
+            color: #000;
+        }
+
+        button.primary-btn:hover {
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.4);
+            transform: translateY(-1px);
+        }
+
+        /* Screen freeze state overlay when app goes dark / background */
+        .background-shutter {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(9, 10, 15, 0.85);
+            backdrop-filter: blur(30px);
+            z-index: 100;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="camera-container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="output-canvas"></canvas>
+        <div id="shutter" class="background-shutter">Execution Paused — App is in Background</div>
+        
+        <div class="glass-panel">
+            <div class="header-row">
+                <h2 style="font-size: 18px; font-weight: 600; color: rgba(255,255,255,0.9);">SignLingo Web</h2>
+                <div id="mode-badge" class="status-badge">Live Mode</div>
+            </div>
+
+            <div id="output-box" class="translation-display">
+                System initializing neural layers...
+            </div>
+
+            <div class="action-row">
+                <button id="toggle-mode-btn" class="primary-btn">Switch to Capture Mode</button>
+                <button id="copy-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    Copy Output
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const outputBox = document.getElementById('output-box');
+        const modeBadge = document.getElementById('mode-badge');
+        const toggleBtn = document.getElementById('toggle-mode-btn');
+        const copyBtn = document.getElementById('copy-btn');
+        const shutter = document.getElementById('shutter');
+
+        let currentMode = 'live'; // 'live' or 'capture'
+        let cameraActiveInstance = null;
+        let runningInferenceLoop = true;
+
+        // Initialize MediaPipe Engine
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.75,
+            minTrackingConfidence: 0.75
+        });
+
+        hands.onResults(onInferenceResults);
+
+        // Hardware Stream Routing
+        async function initCamera() {
+            cameraActiveInstance = new Camera(videoElement, {
+                onFrame: async () => {
+                    if (runningInferenceLoop) {
+                        // Dynamically lock drawing canvas aspect ratios to viewport resolution
+                        if(canvasElement.width !== videoElement.videoWidth) {
+                            canvasElement.width = videoElement.videoWidth;
+                            canvasElement.height = videoElement.videoHeight;
+                        }
+                        await hands.send({ image: videoElement });
+                    }
+                },
+                width: 1280,
+                height: 720
+            });
+            await cameraActiveInstance.start();
+            outputBox.innerText = "System ready. Raise hand to begin translation.";
+        }
+
+        // Process skeletal output vectors mapping
+        function onInferenceResults(results) {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Render custom lightweight edge tracking node highlights
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#ffffff', lineWidth: 2});
+                drawLandmarks(canvasCtx, landmarks, {color: '#00f2fe', lineWidth: 1, radius: 4});
+
+                if (currentMode === 'live') {
+                    // This placeholder updates based on incoming vector coordinates
+                    outputBox.innerText = "DETECTED: HELLO";
+                }
+            } else if (currentMode === 'live') {
+                outputBox.innerText = "Scanning environment...";
+            }
+        }
+
+        // Interactive UI Operations Logic
+        toggleBtn.addEventListener('click', () => {
+            if (currentMode === 'live') {
+                currentMode = 'capture';
+                modeBadge.innerText = "Capture Mode";
+                modeBadge.style.borderColor = "#ff007f";
+                modeBadge.style.color = "#ff007f";
+                modeBadge.style.background = "rgba(255, 0, 127, 0.15)";
+                toggleBtn.innerText = "Switch to Live Mode";
+                outputBox.innerText = "Hold sign still, text will freeze here for safe capture.";
+            } else {
+                currentMode = 'live';
+                modeBadge.innerText = "Live Mode";
+                modeBadge.style.borderColor = "var(--accent-glow)";
+                modeBadge.style.color = "var(--accent-glow)";
+                modeBadge.style.background = "rgba(0, 242, 254, 0.15)";
+                toggleBtn.innerText = "Switch to Capture Mode";
+            }
+        });
+
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(outputBox.innerText);
+            const standardText = copyBtn.innerHTML;
+            copyBtn.innerText = "Copied!";
+            setTimeout(() => copyBtn.innerHTML = standardText, 1500);
+        });
+
+        // Strict Foreground App Lifecycle State Machine
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                runningInferenceLoop = false;
+                shutter.style.display = 'flex';
+                if(videoElement.srcObject) {
+                    videoElement.srcObject.getTracks().forEach(track => track.stop());
+                }
+            } else {
+                shutter.style.display = 'none';
+                runningInferenceLoop = true;
+                initCamera();
+            }
+        });
+
+        // Bootstrap Core
+        window.addEventListener('DOMContentLoaded', initCamera);
+    </script>
+</body>
+</html>
